@@ -107,3 +107,13 @@ https://shop.neonburro.com`. Favicons come from the studio's `scripts/favicons.m
 
 `yarn build`, read the chunk table, show `git status --short` and the diff stat. Push
 when asked to deploy, Netlify builds from main.
+
+## Cloud sessions
+
+Tyler, 2026-10-06: use the cloud session credits. A cloud session clones this
+repository from GitHub and cannot see the memory folder on the Mac, so
+anything a session must know lives in this file or in `docs/`. The studio
+canon is neonburro's `CLAUDE.md`, and how to start a cloud session, what it
+can reach and what stays local is neonburro
+`docs/02-engineering/cloud-sessions.md`. A cloud session only sees what was
+pushed, so push a branch for it. A push to main here is a production deploy and costs Netlify credits, so a cloud session works on a branch and Warbleur merges.
