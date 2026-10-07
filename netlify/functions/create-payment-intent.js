@@ -1,195 +1,172 @@
 // netlify/functions/create-payment-intent.js
-// SENTINEL: NB_SHOP_PAYMENT_INTENT_V3
+// SENTINEL: NB_SHOP_PAYMENT_INTENT_V4
 //
-// Creates the Stripe PaymentIntent for a shop order (and, for the older
-// service invoice path, an invoice payment). The browser calls this from
-// src/pages/Checkout/components/CheckoutForm.jsx after the customer has filled
-// the Payment Element, then confirms the returned client secret client side.
+// Stripe prices never come from the browser. A shop request is rebuilt from
+// _shop-catalog.js, checked against fresh positive inventory then written as
+// one idempotent shop_orders receipt before the client secret is returned.
+// The Stripe Payment Element decides whether the customer uses card, a wallet,
+// Link or Stripe's stablecoin option. Every method settles the same USD price.
 //
-// ── rails ───────────────────────────────────────────────────────────────────
-// automatic_payment_methods is on and payment_method_types is deliberately not
-// sent. That means the Stripe Dashboard decides which methods the Payment
-// Element shows: card, Apple Pay, Google Pay, Link and, with "Stablecoins and
-// Crypto" enabled in Dashboard > Settings > Payment methods, USDC on Solana,
-// Base, Ethereum or Polygon settled to us in dollars. No code change and no
-// redeploy is needed to turn a rail on here.
-//
-// ── why shipping and contact live on the intent ─────────────────────────────
-// Some rails redirect the customer off our site (stablecoins go to
-// crypto.stripe.com and come back). If the browser is lost on the way back the
-// only durable copy of the order is what Stripe holds. So the customer's name,
-// phone and address are written to `shipping` and to metadata here, at intent
-// creation, before any redirect can happen. The Netlify form post in
-// Checkout/index.jsx is a convenience copy, Stripe is the record.
-//
-// ── digital (V3) ────────────────────────────────────────────────────────────
-// A digital only order has no street address and that is fine. shippingFor
-// returns undefined without one and Stripe accepts an intent with no shipping.
-// metadata.delivery is 'digital', 'ship' or 'mixed' so whoever fulfils can
-// filter. Each item carries d (delivery) and, for a Pay Card reload, r (the
-// card code the shopper typed). Reload codes are also joined into
-// metadata.reload_codes so the Dashboard shows them without decoding JSON.
-// The card ledger that consumes them lives in Pulse and is the next build,
-// until then a reload is applied by hand from this metadata.
-//
-// Stripe metadata is 50 keys and 500 characters per value. items_json is
-// truncated defensively, the per item keys cover the first five for the
-// Dashboard's benefit, and the full cart is on the Netlify form.
+// The older service invoice path remains at the bottom. Nothing in the shop
+// calls it today, but the endpoint was already public so it stays compatible.
 //
 // No oxford commas, no em dashes.
 
 import Stripe from 'stripe';
+import {
+  assertFreshInventory,
+  checkoutKeyFrom,
+  findOrderReceipt,
+  priceOrder,
+  ShopCatalogError,
+  writeOrderReceipt,
+} from './_shop-catalog.js';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-const clip = (value, max = 480) => {
-  const s = String(value ?? '');
-  return s.length > max ? s.slice(0, max) : s;
-};
+const clip = (value, max = 480) => String(value ?? '').slice(0, max);
 
-const deliveryOf = (items, hint) => {
-  const kinds = new Set(items.map((i) => (i.delivery === 'digital' ? 'digital' : 'ship')));
-  if (kinds.size === 2) return 'mixed';
-  if (kinds.has('digital')) return 'digital';
-  if (kinds.has('ship')) return 'ship';
-  return hint === 'digital' ? 'digital' : 'ship';
-};
-
-const shopMetadata = ({ customerEmail, items, customer, delivery }) => {
-  const reloadCodes = items.map((i) => i.reloadCode).filter(Boolean);
+const shopMetadata = ({ customerEmail, items, customer, checkoutKey }) => {
   const metadata = {
     type: 'shop_order',
-    delivery,
+    delivery: 'ship',
+    checkout_key: clip(checkoutKey, 120),
     customer_email: clip(customerEmail, 200),
     items_count: String(items.length),
-    items_json: clip(JSON.stringify(items.map((i) => ({
-      id: i.id,
-      n: i.name,
-      p: i.price,
-      q: i.quantity,
-      s: i.selectedSize || undefined,
-      d: i.delivery === 'digital' ? 'digital' : undefined,
-      v: i.selectedDesign || undefined,
-      t: i.selectedTier || undefined,
-      r: i.reloadCode || undefined,
+    items_json: clip(JSON.stringify(items.map((item) => ({
+      id: item.id,
+      n: item.name,
+      p: item.price,
+      q: item.quantity,
+      s: item.selectedSize,
+      v: item.selectedDesign,
     })))),
   };
 
-  if (reloadCodes.length) metadata.reload_codes = clip(reloadCodes.join(','), 400);
-
-  if (customer) {
-    if (customer.name) metadata.customer_name = clip(customer.name, 200);
-    if (customer.phone) metadata.customer_phone = clip(customer.phone, 40);
-    const line = [customer.address, customer.city, customer.state, customer.zip].filter(Boolean).join(', ');
-    if (line) metadata.ship_to = clip(line, 400);
-  }
+  if (customer.name) metadata.customer_name = clip(customer.name, 200);
+  if (customer.phone) metadata.customer_phone = clip(customer.phone, 40);
+  const line = [customer.address, customer.city, customer.state, customer.zip].filter(Boolean).join(', ');
+  if (line) metadata.ship_to = clip(line, 400);
 
   items.slice(0, 5).forEach((item, index) => {
     const prefix = `item_${index + 1}`;
     metadata[`${prefix}_name`] = clip(item.name, 120);
     metadata[`${prefix}_quantity`] = String(item.quantity);
     metadata[`${prefix}_price`] = String(item.price);
-    if (item.selectedSize) metadata[`${prefix}_size`] = clip(item.selectedSize, 40);
-    if (item.selectedDesign) metadata[`${prefix}_design`] = clip(item.selectedDesign, 80);
-    if (item.selectedTier) metadata[`${prefix}_tier`] = clip(item.selectedTier, 40);
-    if (item.reloadCode) metadata[`${prefix}_reload`] = clip(item.reloadCode, 60);
+    metadata[`${prefix}_size`] = clip(item.selectedSize, 40);
+    metadata[`${prefix}_design`] = clip(item.selectedDesign, 80);
   });
 
   return metadata;
 };
 
-const shippingFor = (customer) => {
-  if (!customer || !customer.name || !String(customer.address || '').trim()) return undefined;
-  return {
-    name: clip(customer.name, 200),
-    phone: customer.phone ? clip(customer.phone, 40) : undefined,
-    address: {
-      line1: clip(customer.address, 200),
-      city: clip(customer.city, 100),
-      state: clip(customer.state, 40),
-      postal_code: clip(customer.zip, 20),
-      country: 'US',
-    },
-  };
+const cleanCustomer = (body, customerEmail) => ({
+  name: clip(body?.name, 200).trim(),
+  email: clip(customerEmail, 200).trim().toLowerCase(),
+  phone: clip(body?.phone, 40).trim(),
+  address: clip(body?.address, 200).trim(),
+  city: clip(body?.city, 100).trim(),
+  state: clip(body?.state, 40).trim(),
+  zip: clip(body?.zip, 20).trim(),
+  country: 'US',
+});
+
+const shippingFor = (customer) => ({
+  name: customer.name,
+  phone: customer.phone || undefined,
+  address: {
+    line1: customer.address,
+    city: customer.city,
+    state: customer.state,
+    postal_code: customer.zip,
+    country: 'US',
+  },
+});
+
+const headers = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Content-Type': 'application/json',
+  'Cache-Control': 'no-store',
+};
+
+const response = (statusCode, body) => ({ statusCode, headers, body: JSON.stringify(body) });
+
+const shopPayment = async (body) => {
+  const customerEmail = clip(body.customerEmail, 200).trim().toLowerCase();
+  if (!customerEmail || !customerEmail.includes('@')) throw new ShopCatalogError('A valid email is required');
+
+  const checkoutKey = checkoutKeyFrom(body.checkoutKey);
+  const priced = priceOrder(body.items);
+  const customer = cleanCustomer(body.customer || {}, customerEmail);
+  if (!customer.name || !customer.address || !customer.city || !customer.state || !customer.zip) {
+    throw new ShopCatalogError('A complete shipping address is required for shirts');
+  }
+
+  await assertFreshInventory(priced.items);
+
+  const existing = await findOrderReceipt({ checkoutKey, rail: 'stripe' });
+  if (existing) {
+    const intent = await stripe.paymentIntents.retrieve(existing.provider_reference);
+    return response(200, {
+      clientSecret: intent.client_secret,
+      id: intent.id,
+      amountUsd: Number(existing.amount_usd),
+      reused: true,
+    });
+  }
+
+  const paymentIntent = await stripe.paymentIntents.create({
+    amount: priced.amountCents,
+    currency: 'usd',
+    automatic_payment_methods: { enabled: true },
+    receipt_email: customer.email,
+    description: `Neon Burro Shop · ${priced.items.length} shirt line${priced.items.length === 1 ? '' : 's'}`,
+    shipping: shippingFor(customer),
+    metadata: shopMetadata({ customerEmail, items: priced.items, customer, checkoutKey }),
+    statement_descriptor_suffix: 'NEONBURRO',
+  }, { idempotencyKey: `shop_${checkoutKey}` });
+
+  try {
+    await writeOrderReceipt({
+      checkoutKey,
+      rail: 'stripe',
+      providerReference: paymentIntent.id,
+      currency: 'USD',
+      amountUsd: priced.amountUsd,
+      customer,
+      items: priced.items,
+    });
+  } catch (error) {
+    await stripe.paymentIntents.cancel(paymentIntent.id).catch(() => null);
+    throw error;
+  }
+
+  return response(200, {
+    clientSecret: paymentIntent.client_secret,
+    id: paymentIntent.id,
+    amountUsd: priced.amountUsd,
+  });
 };
 
 export const handler = async (event) => {
-  const headers = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  };
-
-  if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 200, headers, body: '' };
-  }
-
-  if (event.httpMethod !== 'POST') {
-    return {
-      statusCode: 405,
-      headers,
-      body: JSON.stringify({ error: 'Method not allowed' }),
-    };
-  }
+  if (event.httpMethod === 'OPTIONS') return response(200, {});
+  if (event.httpMethod !== 'POST') return response(405, { error: 'Method not allowed' });
 
   try {
-    const body = JSON.parse(event.body);
-    const isShopOrder = body.type === 'shop';
+    const body = JSON.parse(event.body || '{}');
+    if (body.type === 'shop') return await shopPayment(body);
 
-    if (isShopOrder) {
-      const { amount, customerEmail, items, customer } = body;
-
-      if (!amount || !customerEmail || !Array.isArray(items) || items.length === 0) {
-        return {
-          statusCode: 400,
-          headers,
-          body: JSON.stringify({ error: 'Missing required fields' }),
-        };
-      }
-
-      const cents = Math.round(Number(amount) * 100);
-      if (!Number.isFinite(cents) || cents < 50) {
-        return {
-          statusCode: 400,
-          headers,
-          body: JSON.stringify({ error: 'Invalid amount' }),
-        };
-      }
-
-      const delivery = deliveryOf(items, body.delivery);
-
-      const paymentIntent = await stripe.paymentIntents.create({
-        amount: cents,
-        currency: 'usd',
-        automatic_payment_methods: { enabled: true },
-        receipt_email: customerEmail,
-        description: `Neon Burro Shop · ${items.length} item${items.length === 1 ? '' : 's'}${delivery === 'digital' ? ' · by email' : ''}`,
-        shipping: shippingFor(customer),
-        metadata: shopMetadata({ customerEmail, items, customer, delivery }),
-        statement_descriptor_suffix: 'NEONBURRO',
-      });
-
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({ clientSecret: paymentIntent.client_secret, id: paymentIntent.id }),
-      };
-    }
-
-    // Older service invoice path. Left as it was, nothing on the shop calls it
-    // today but the endpoint is public and something may.
     const { amount, firstName, projectName, hours } = body;
-
     if (!amount || !firstName || !projectName || !hours) {
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({ error: 'Missing required fields' }),
-      };
+      return response(400, { error: 'Missing required fields' });
     }
+    const cents = Math.round(Number(amount) * 100);
+    if (!Number.isFinite(cents) || cents < 50) return response(400, { error: 'Invalid amount' });
 
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(Number(amount) * 100),
+      amount: cents,
       currency: 'usd',
       automatic_payment_methods: { enabled: true },
       metadata: {
@@ -201,20 +178,12 @@ export const handler = async (event) => {
       statement_descriptor_suffix: 'NEONBURRO',
     });
 
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({ clientSecret: paymentIntent.client_secret, id: paymentIntent.id }),
-    };
+    return response(200, { clientSecret: paymentIntent.client_secret, id: paymentIntent.id });
   } catch (error) {
+    if (error instanceof ShopCatalogError) {
+      return response(error.statusCode, { error: error.message, code: error.code });
+    }
     console.error('Payment intent creation failed:', error);
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({
-        error: 'Payment processing failed',
-        details: error.message,
-      }),
-    };
+    return response(500, { error: 'Payment processing failed', details: error.message });
   }
 };
