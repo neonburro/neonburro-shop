@@ -36,7 +36,9 @@
 // is required. A product is digital when its record says category 'Digital'
 // or room 'sent'. Both are set in data/products-digital.js, keep them in step.
 // isDigitalRecord in netlify/functions/_shop-catalog.js reads the same three
-// fields to decide delivery on the server. Change one, change both.
+// fields to decide delivery on the server, and isDigitalProduct in
+// src/data/inventory.js reads them to decide whether a count can go stale.
+// Change one, change all three.
 //
 // No oxford commas, no em dashes.
 

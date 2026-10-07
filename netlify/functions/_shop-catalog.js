@@ -66,6 +66,9 @@
 // design with enough on hand, touched in the last seven days. Missing, zero,
 // short or stale fails closed. The schema counts a design across sizes, so
 // size level stock is a later admin upgrade. A digital piece is not counted.
+// src/data/inventory.js applies the same seven days on the page (V2), so a
+// stale piece reads out of stock before anybody reaches checkout. Keep
+// INVENTORY_FRESH_MS and its COUNT_FRESH_MS equal.
 // It is open when its record says inStock and no row says otherwise, which is
 // the answer isBuyable in src/data/inventory.js gives the page.
 //

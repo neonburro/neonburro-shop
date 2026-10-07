@@ -1,5 +1,5 @@
 // src/data/inventory.js
-// SENTINEL: NB_SHOP_INVENTORY_V1
+// SENTINEL: NB_SHOP_INVENTORY_V2
 //
 // The seam between this shop and Pulse. Everything about whether a thing can be
 // bought right now lives behind these three functions, so when Pulse becomes the
@@ -26,10 +26,29 @@
 // says, and every product file currently says false. A network problem cannot
 // accidentally open the store.
 //
+// A STALE COUNT IS NO COUNT, FOR ANYTHING THAT SHIPS (V2, 2026-10-07)
+// Checkout refuses a piece that ships when its row is older than seven days
+// (checkInventoryRows in netlify/functions/_shop-catalog.js). Until V2 this
+// file ignored the age, so the page offered a shirt and checkout then said
+// "Inventory needs a fresh count", which is the page lying. Each row's age
+// now rides in the cache beside its number, and isBuyable and stockState read
+// a stale row as zero for anything that ships. A digital piece is never
+// counted by age, same as the server. COUNT_FRESH_MS must match
+// INVENTORY_FRESH_MS there, and isDigitalProduct must match isDigitalRecord
+// there and isDigitalItem in src/context/CartContext.jsx. Tyler counts in
+// Pulse, Shop, Stock, and a count there makes a row fresh again.
+//
 // No oxford commas, no em dashes.
 
 const ENDPOINT = '/.netlify/functions/shop-inventory';
 const STALE_AFTER_MS = 60_000;
+// Must match INVENTORY_FRESH_MS in netlify/functions/_shop-catalog.js.
+const COUNT_FRESH_MS = 7 * 24 * 60 * 60 * 1000;
+
+// Same three fields as isDigitalRecord in netlify/functions/_shop-catalog.js
+// and isDigitalItem in src/context/CartContext.jsx. Change all three.
+const isDigitalProduct = (product) =>
+  product.category === 'Digital' || product.room === 'sent' || product.delivery === 'digital';
 
 let cache = null;        // { byKey: {}, fetchedAt: number }
 let inflight = null;
@@ -55,10 +74,14 @@ export const primeInventory = async ({ force = false } = {}) => {
       if (!res.ok) throw new Error(`inventory ${res.status}`);
       const body = await res.json();
       const byKey = {};
+      const stale = {};
       (body.items || []).forEach((row) => {
-        byKey[key(row.productId, row.variantId)] = Number(row.onHand);
+        const k = key(row.productId, row.variantId);
+        byKey[k] = Number(row.onHand);
+        const counted = new Date(row.updatedAt).getTime();
+        if (!Number.isFinite(counted) || Date.now() - counted > COUNT_FRESH_MS) stale[k] = true;
       });
-      cache = { byKey, fetchedAt: Date.now() };
+      cache = { byKey, stale, fetchedAt: Date.now() };
       notify();
       return byKey;
     } catch {
@@ -73,17 +96,19 @@ export const primeInventory = async ({ force = false } = {}) => {
   return inflight;
 };
 
-// number | null. null means we do not know yet.
-export const stockFor = (productId, variantId = null) => {
+// number | null. null means we do not know yet. With counted, a row whose
+// count is older than COUNT_FRESH_MS reads as zero, the way checkout reads it.
+export const stockFor = (productId, variantId = null, { counted = false } = {}) => {
   if (!cache) return null;
-  const exact = cache.byKey[key(productId, variantId)];
-  if (typeof exact === 'number') return exact;
+  const read = (k) => (counted && cache.stale && cache.stale[k] ? 0 : cache.byKey[k]);
+  const exactKey = key(productId, variantId);
+  if (typeof cache.byKey[exactKey] === 'number') return read(exactKey);
   if (variantId) return null;
   // No product level row, so sum the variants we do have.
   const prefix = `${productId}:`;
-  const rows = Object.entries(cache.byKey).filter(([k]) => k.startsWith(prefix));
+  const rows = Object.keys(cache.byKey).filter((k) => k.startsWith(prefix));
   if (!rows.length) return null;
-  return rows.reduce((n, [, v]) => n + Number(v || 0), 0);
+  return rows.reduce((n, k) => n + Number(read(k) || 0), 0);
 };
 
 // The only question a component should ask. checkInventoryRows in
@@ -92,7 +117,7 @@ export const stockFor = (productId, variantId = null) => {
 // same answer. Change one, change both.
 export const isBuyable = (product, variantId = null) => {
   if (!product) return false;
-  const live = stockFor(product.id, variantId);
+  const live = stockFor(product.id, variantId, { counted: !isDigitalProduct(product) });
   if (live === null) return Boolean(product.inStock);
   return live > 0;
 };
@@ -101,7 +126,7 @@ export const isBuyable = (product, variantId = null) => {
 export const stockState = (product, variantId = null) => {
   if (!product) return 'unknown';
   if (product.comingSoon) return 'soon';
-  const live = stockFor(product.id, variantId);
+  const live = stockFor(product.id, variantId, { counted: !isDigitalProduct(product) });
   if (live === null) return product.inStock ? 'in' : 'out';
   if (live <= 0) return 'out';
   if (live <= 3) return 'low';

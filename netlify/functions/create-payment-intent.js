@@ -64,6 +64,30 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 const clip = (value, max = 480) => String(value ?? '').slice(0, max);
 
+// Stripe caps a metadata value at 500 characters. Clipping the JSON cut it
+// mid string on a big cart, which left a value nobody could parse. Now it is
+// always whole: every field when it fits, ids and quantities when it does not,
+// and a pointer to the receipt when even that is too long. shop_orders holds
+// every line regardless, and Pulse reads it from there.
+const ITEMS_JSON_MAX = 480;
+const itemsJson = (items) => {
+  const full = JSON.stringify(items.map((item) => ({
+    id: item.id,
+    n: item.name,
+    p: item.price,
+    q: item.quantity,
+    s: item.selectedSize || undefined,
+    d: item.delivery === 'digital' ? 'digital' : undefined,
+    v: item.selectedDesign || undefined,
+    t: item.selectedTier || undefined,
+    r: item.reloadCode || undefined,
+  })));
+  if (full.length <= ITEMS_JSON_MAX) return full;
+  const lean = JSON.stringify(items.map((item) => ({ id: item.id, q: item.quantity, v: item.selectedDesignId || undefined })));
+  if (lean.length <= ITEMS_JSON_MAX) return lean;
+  return JSON.stringify({ lines: items.length, full_list: 'shop_orders' });
+};
+
 const shopMetadata = ({ customerEmail, priced, customer, checkoutKey }) => {
   const { items } = priced;
   const reloadCodes = items.map((item) => item.reloadCode).filter(Boolean);
@@ -73,17 +97,7 @@ const shopMetadata = ({ customerEmail, priced, customer, checkoutKey }) => {
     checkout_key: clip(checkoutKey, 120),
     customer_email: clip(customerEmail, 200),
     items_count: String(items.length),
-    items_json: clip(JSON.stringify(items.map((item) => ({
-      id: item.id,
-      n: item.name,
-      p: item.price,
-      q: item.quantity,
-      s: item.selectedSize || undefined,
-      d: item.delivery === 'digital' ? 'digital' : undefined,
-      v: item.selectedDesign || undefined,
-      t: item.selectedTier || undefined,
-      r: item.reloadCode || undefined,
-    })))),
+    items_json: itemsJson(items),
   };
 
   if (reloadCodes.length) metadata.reload_codes = clip(reloadCodes.join(','), 400);

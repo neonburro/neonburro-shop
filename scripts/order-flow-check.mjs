@@ -153,7 +153,7 @@ export default class Stripe {
   constructor() {
     const log = (entry) => globalThis.__orderFlowStripe.push(entry);
     this.paymentIntents = {
-      create: async (params) => { n += 1; log({ op: 'create', amount: params.amount }); return { id: 'pi_flow_' + n, client_secret: 'pi_flow_' + n + '_secret' }; },
+      create: async (params) => { n += 1; log({ op: 'create', amount: params.amount, itemsJson: params.metadata && params.metadata.items_json }); return { id: 'pi_flow_' + n, client_secret: 'pi_flow_' + n + '_secret' }; },
       retrieve: async (id) => { log({ op: 'retrieve', id }); return { id, client_secret: id + '_secret' }; },
       cancel: async (id) => { log({ op: 'cancel', id }); return { id }; },
     };
@@ -323,6 +323,38 @@ console.log(`order-flow-check  bundled in ${scratch}\n`);
   const orphan = db.solana_payments.at(-1);
   check('no receipt, no QR: the request fails and is expired', reply.statusCode === 503 && orphan.status === 'expired',
     `${reply.statusCode} ${orphan.status}`);
+}
+
+// ── the page agrees with checkout about stale counts ────────────────────────
+{
+  const page = await bundle('src/data/inventory.js', 'inventory.mjs');
+  const old = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString();
+  const pageFetch = globalThis.fetch;
+  globalThis.fetch = async () => respond(200, { items: [
+    { productId: 'theburroship', variantId: 'sage', onHand: 3, updatedAt: fresh() },
+    { productId: 'theburroship', variantId: 'pinyon', onHand: 3, updatedAt: old },
+    { productId: 'digital-gift-card', variantId: null, onHand: 5, updatedAt: old },
+  ] });
+  await page.primeInventory({ force: true });
+  globalThis.fetch = pageFetch;
+  const shirtRecord = { id: 'theburroship', category: 'Wearable' };
+  const cardRecord = { id: 'digital-gift-card', category: 'Digital' };
+  check('the page offers a freshly counted shirt', page.isBuyable(shirtRecord, 'sage') === true, `${page.stockState(shirtRecord, 'sage')}`);
+  check('the page calls a stale shirt out, as checkout would', page.isBuyable(shirtRecord, 'pinyon') === false, `${page.stockState(shirtRecord, 'pinyon')}`);
+  check('a digital piece never goes stale on the page', page.isBuyable(cardRecord) === true, `${page.stockState(cardRecord)}`);
+}
+
+// ── a big cart still leaves whole json on the intent ────────────────────────
+{
+  const many = Array.from({ length: 20 }, (_, i) => ({ ...CLUE, selectedDesign: ['Marker', 'Bearing', 'Distance', 'Place'][i % 4], quantity: 1 }));
+  const reply = await intents.handler({
+    httpMethod: 'POST',
+    body: JSON.stringify({ type: 'shop', customerEmail: 'flow@example.test', items: many }),
+  });
+  const raw = stripeCalls.at(-1)?.itemsJson || '';
+  let whole = false;
+  try { JSON.parse(raw); whole = true; } catch { whole = false; }
+  check('twenty lines still leave whole json in Stripe metadata', reply.statusCode === 200 && whole && raw.length <= 500, `${raw.length} chars, ${whole ? 'parses' : 'broken'}`);
 }
 
 check('nothing tried to leave the machine', outside.length === 0, outside.length ? outside.join(' ') : 'no outside calls');
