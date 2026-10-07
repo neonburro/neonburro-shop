@@ -1,5 +1,5 @@
 // netlify/functions/_solana.js
-// SENTINEL: NB_SHOP_SOLANA_SHARED_V1
+// SENTINEL: NB_SHOP_SOLANA_SHARED_V2
 //
 // ── THE DIRECT RAIL, IN ONE PARAGRAPH ───────────────────────────────────────
 //
@@ -42,9 +42,24 @@
 //   RESEND_API_KEY       optional. If present, a paid transfer emails the yard.
 //   NOTIFY_EMAIL         optional. Defaults to hello@neonburro.com.
 //
+// ── THE SAME LEDGER AS STRIPE, 2026-10-07, Cypher ────────────────────────
+//
+// solana_payments stays this rail's working table, the reference, the token
+// amount, the signature. The sale itself is also a row in shop_orders, rail
+// solana_direct, provider_reference the payment reference, written by
+// solana-pay-request.js. That is the table Pulse reads as the shop's sales, so
+// a direct payment shows up beside a card payment. settleRow moves it to paid
+// through markOrderPaid in _shop-catalog.js, which also takes the stock and
+// writes the dashboard line, and expireRow below moves it to expired. Both are
+// guarded there, so the status poll and the sweep finding the same payment do
+// nothing the second time.
+//
 // No oxford commas, no em dashes.
 
 import { randomBytes } from 'node:crypto';
+import { markOrderPaid, moveOrder } from './_shop-catalog.js';
+
+export const SHOP_RAIL = 'solana_direct';
 
 export const RECIPIENT = process.env.SOLANA_RECIPIENT || '86JyeB94ABYCpQshm2xvoqf9WJopdEu8VGswYSufNDgE';
 export const RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
@@ -267,8 +282,19 @@ export const settleRow = async (row, found) => {
     },
   );
   const paidRow = Array.isArray(updated) && updated[0] ? updated[0] : { ...row, ...found, status: 'paid' };
+  await markOrderPaid({ rail: SHOP_RAIL, providerReference: row.reference, paidAt: paidRow.paid_at })
+    .catch((err) => console.error('solana sale landed but the shop order did not move to paid', row.reference, err.message));
   await notify(paidRow).catch((err) => console.error('solana notify failed', err));
   return paidRow;
+};
+
+// The clock ran out and the chain shows nothing. Both tables say so, each
+// only from pending, so a payment that lands later still settles both.
+export const expireRow = async (reference) => {
+  await db(`solana_payments?reference=eq.${encodeURIComponent(reference)}&status=eq.pending`, {
+    method: 'PATCH', body: { status: 'expired' },
+  }).catch(() => null);
+  await moveOrder({ rail: SHOP_RAIL, providerReference: reference, to: 'expired' }).catch(() => null);
 };
 
 // ── the notification ────────────────────────────────────────────────────────

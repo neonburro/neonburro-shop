@@ -19,7 +19,7 @@
 //
 // No oxford commas, no em dashes.
 
-import { db, findSettlement, settleRow, json } from './_solana.js';
+import { db, findSettlement, settleRow, expireRow, json } from './_solana.js';
 
 const HOUR = 60 * 60 * 1000;
 
@@ -40,9 +40,7 @@ export const handler = async () => {
         continue;
       }
       if (new Date(row.expires_at).getTime() + HOUR < now) {
-        await db(`solana_payments?reference=eq.${encodeURIComponent(row.reference)}&status=eq.pending`, {
-          method: 'PATCH', body: { status: 'expired' },
-        }).catch(() => null);
+        await expireRow(row.reference);
         expired += 1;
       }
     }

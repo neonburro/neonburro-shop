@@ -1,5 +1,11 @@
 // netlify/functions/_shop-catalog.js
-// SENTINEL: NB_SHOP_SERVER_CATALOG_V3
+// SENTINEL: NB_SHOP_SERVER_CATALOG_V4
+//
+// V4, 2026-10-07, Cypher. The receipts became the sales ledger Pulse reads.
+// moveOrder and markOrderPaid at the bottom are the only way an order's status
+// changes from the server side, both rails call them, and an order only moves
+// forward. A paid order takes its stock once and writes one line to the Pulse
+// dashboard. Everything above this note is the V3 pricing, unchanged.
 //
 // The browser may describe an order, but it never prices one. Every rail that
 // takes money passes the raw saddlebag through priceOrder below, and every
@@ -377,6 +383,92 @@ export const updateOrderReceipt = async ({ rail, providerReference, values }) =>
     { method: 'PATCH', write: true, prefer: 'return=representation', body: values },
   );
   return Array.isArray(rows) && rows[0] ? rows[0] : null;
+};
+
+// ── AN ORDER ONLY MOVES FORWARD ─────────────────────────────────────────────
+// Stripe delivers events out of order and more than once, and the chain sweep
+// and the status poll can both find the same payment. So every status change
+// names the statuses it may leave from, and PostgREST applies it only to a row
+// still in one of them. A late processing event cannot pull a paid order back,
+// a replayed succeeded event finds nothing to move and returns null, and that
+// null is what keeps markOrderPaid from taking stock twice. Pulse staff move
+// paid and fulfilled between themselves under their own policy, see
+// supabase/migrations/20261007150000_shop_orders_into_pulse.sql.
+export const ORDER_MOVES = Object.freeze({
+  processing: ['pending'],
+  paid: ['pending', 'processing', 'failed', 'expired'],
+  failed: ['pending', 'processing'],
+  expired: ['pending'],
+  refunded: ['paid', 'fulfilled'],
+});
+
+export const moveOrder = async ({ rail, providerReference, to, values = {} }) => {
+  const from = ORDER_MOVES[to];
+  if (!from) throw new Error(`no move to ${to}`);
+  const rows = await shopDb(
+    `shop_orders?rail=eq.${encodeURIComponent(rail)}&provider_reference=eq.${encodeURIComponent(providerReference)}&status=in.(${from.join(',')})`,
+    { method: 'PATCH', write: true, prefer: 'return=representation', body: { ...values, status: to } },
+  );
+  return Array.isArray(rows) && rows[0] ? rows[0] : null;
+};
+
+const money = (n) => `$${Number(n || 0).toFixed(2)}`;
+
+// One line on the Pulse dashboard per sale. Never fails the caller, the order
+// is already paid and the receipt is the record, this is only the notice.
+const logSale = async (order) => {
+  const lines = Array.isArray(order.items) ? order.items : [];
+  const pieces = lines.reduce((n, line) => n + Number(line.quantity || 0), 0);
+  await shopDb('activity_log', {
+    method: 'POST',
+    write: true,
+    prefer: 'return=minimal',
+    body: {
+      action: 'shop_order_paid',
+      entity_type: 'shop_order',
+      entity_id: order.id,
+      category: 'transactional',
+      // amount and customer_name are the two keys Pulse's ActivityStream.jsx
+      // reads to print the dollar figure and the name on the line.
+      metadata: {
+        rail: order.rail,
+        amount: Number(order.amount_usd),
+        amount_usd: Number(order.amount_usd),
+        currency: order.currency,
+        pieces,
+        names: lines.map((line) => line.name).slice(0, 6),
+        customer_name: order.customer?.name || null,
+        ships: lines.some((line) => line.delivery === 'ship'),
+      },
+      created_at: new Date().toISOString(),
+    },
+  }).catch((error) => console.error('shop sale was paid but the activity line failed', order.id, error.message));
+};
+
+// Both rails land here when money has really arrived: the Stripe webhook on
+// payment_intent.succeeded and settleRow on the direct Solana rail. The move
+// to paid is guarded, so only the first arrival takes stock and writes the
+// dashboard line. shop_take_stock is also idempotent in the database itself.
+// A stock failure is logged loudly and never unpays an order: the money is
+// in, and a count that is one high is fixed in Pulse, a lost sale is not.
+export const markOrderPaid = async ({ rail, providerReference, paidAt }) => {
+  const order = await moveOrder({
+    rail,
+    providerReference,
+    to: 'paid',
+    values: { paid_at: paidAt || new Date().toISOString() },
+  });
+  if (!order) return null;
+
+  await shopDb('rpc/shop_take_stock', {
+    method: 'POST',
+    write: true,
+    body: { p_order: order.id },
+  }).catch((error) => console.error('STOCK NOT TAKEN for paid shop order', order.id, error.message));
+
+  await logSale(order);
+  console.log('shop order paid', order.id, rail, money(order.amount_usd));
+  return order;
 };
 
 export const checkoutKeyFrom = (value) => {

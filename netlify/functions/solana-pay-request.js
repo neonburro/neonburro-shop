@@ -1,5 +1,5 @@
 // netlify/functions/solana-pay-request.js
-// SENTINEL: NB_SHOP_SOLANA_REQUEST_V1_PRICED
+// SENTINEL: NB_SHOP_SOLANA_REQUEST_V2_LEDGER
 //
 // Opens a direct Solana payment. The browser posts the saddlebag and whatever
 // the customer chose to tell us (all optional on this rail), we mint a
@@ -17,6 +17,9 @@
 // lines, never the browser's. solana-pay-status and solana-pay-sweep verify
 // against amount_token in that row, so they inherit the fix with no change.
 //
+// Since 2026-10-07 the sale is also written to shop_orders, rail
+// solana_direct, the table Pulse reads, see the note in _solana.js.
+//
 // This is the smallest change that closes it. The uncommitted September
 // rewrite of this file (idempotent checkout keys, a cross checked SOL quote,
 // a shop_orders receipt) is a larger design and is not part of this.
@@ -25,9 +28,9 @@
 
 import {
   RECIPIENT, REQUEST_TTL_MIN, newReference, payUrl, solPriceUsd, tokenAmountFor,
-  formatAmount, db, json,
+  formatAmount, db, json, expireRow, SHOP_RAIL,
 } from './_solana.js';
-import { assertFreshInventory, priceOrder, ShopCatalogError } from './_shop-catalog.js';
+import { assertFreshInventory, priceOrder, ShopCatalogError, writeOrderReceipt } from './_shop-catalog.js';
 
 const clip = (v, n) => String(v ?? '').slice(0, n);
 
@@ -82,6 +85,27 @@ export const handler = async (event) => {
         expires_at: expiresAt,
       },
     });
+
+    // The sale in the ledger Pulse reads, beside the card sales. If it cannot
+    // be written the request is expired before anybody sees a QR, the same
+    // fail closed rule as the Stripe rail. No record, no payment request.
+    try {
+      await writeOrderReceipt({
+        checkoutKey: `sol_${reference}`,
+        rail: SHOP_RAIL,
+        providerReference: reference,
+        currency,
+        amountUsd,
+        amountToken,
+        priceSource: currency === 'SOL' ? 'sol_usd_quote' : 'usdc_par',
+        priceQuotedAt: new Date().toISOString(),
+        customer,
+        items,
+      });
+    } catch (receiptError) {
+      await expireRow(reference);
+      throw receiptError;
+    }
 
     return json(200, {
       reference,

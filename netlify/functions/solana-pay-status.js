@@ -13,7 +13,7 @@
 //
 // No oxford commas, no em dashes.
 
-import { isBase58Key, rowByReference, findSettlement, settleRow, db, json } from './_solana.js';
+import { isBase58Key, rowByReference, findSettlement, settleRow, expireRow, json } from './_solana.js';
 
 export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return json(200, {});
@@ -44,9 +44,7 @@ export const handler = async (event) => {
     }
 
     if (expired && row.status === 'pending') {
-      await db(`solana_payments?reference=eq.${encodeURIComponent(reference)}&status=eq.pending`, {
-        method: 'PATCH', body: { status: 'expired' },
-      }).catch(() => null);
+      await expireRow(reference);
       return json(200, { status: 'expired', expiresAt: row.expires_at });
     }
 
