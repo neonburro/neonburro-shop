@@ -197,6 +197,64 @@ export const WEARABLE_PRODUCTS = {
     ],
   },
 
+  // loose. and clouds., Aster, 2026-10-07. Tyler: "Let Aster make some better
+  // shirts based on Neonburro main graphics" and, of the cloud, "can you add
+  // those to shop.neonburro ... Just add them in there." The art and its print
+  // masters are in docs/drops/2026-10-loose/. The photographs are the shop's
+  // own blanks with each print laid on and shaded by the fabric, and a real
+  // photograph replaces each one when its first sample comes back. They are
+  // listed the way every shirt here is listed: this record says the shirt
+  // exists, data/inventory.js says whether it can be bought, and nothing can
+  // be bought until an inventory row says so.
+  //
+  // No stripePriceId on purpose. Checkout prices by amount and the id only
+  // rides along as metadata, and a price object on the live Stripe account is
+  // Tyler's to make, not a session's.
+  loose: {
+    ...TEE,
+    id: 'loose',
+    name: 'loose.',
+    floatWeight: 2,
+    price: 95,
+    color: '#C5D957',
+    layout: 'gallery',
+    cover: '/images/shop/tshirts/loose/glasses.webp',
+    description: 'Six prints from things the studio already drew, on the loose cut.',
+    story: 'The burro\'s glasses, the signal in every plate, the ridge from town, the line we sign off with, three lit tubes and the burro himself, waiting at the hem. Nothing here was drawn for a shirt first. It was drawn because it was ours, and then it fit.',
+    featured: true,
+    designs: [
+      { id: 'glasses', name: 'Glasses · Sage', image: '/images/shop/tshirts/loose/glasses.webp', description: 'Everybody knows whose glasses these are.' },
+      { id: 'signal', name: 'Signal · Pinyon', image: '/images/shop/tshirts/loose/signal.webp', description: 'The lime star from every plate, drawn as the spiral it is. Only the middle glows.' },
+      { id: 'cimarrons', name: 'Cimarrons · Milk', image: '/images/shop/tshirts/loose/cimarrons.webp', description: 'The ridge from town at the end of the day. Four bands of our own dye and one ink.' },
+      { id: 'embrace', name: 'Embrace what\'s new · Pinyon', image: '/images/shop/tshirts/loose/embrace.webp', description: 'The line we sign off with, with the period lit.' },
+      { id: 'know-the-number', name: 'Know the number · Pinyon', image: '/images/shop/tshirts/loose/know-the-number.webp', description: 'Three tubes, the middle one lit. Worn small, on the chest.' },
+      { id: 'peek', name: 'Peek · Pinyon', image: '/images/shop/tshirts/loose/peek.webp', description: 'He has been there the whole time.' },
+    ],
+  },
+
+  clouds: {
+    ...TEE,
+    id: 'clouds',
+    name: 'clouds.',
+    floatWeight: 2,
+    price: 95,
+    color: '#9EAFBE',
+    layout: 'gallery',
+    cover: '/images/shop/tshirts/clouds/carved.webp',
+    description: 'The carved cloud, and six thinner ones in a single ink.',
+    story: 'A white cloud needs a thick base under it, and a thick base sits on a shirt like a sticker. So the thin ones are one ink, laid once. They sink into the cotton and fade with it. The carved cloud is the exception, and it earns it.',
+    featured: true,
+    designs: [
+      { id: 'carved', name: 'Carved · Serviceberry', image: '/images/shop/tshirts/clouds/carved.webp', description: 'The cloud off the twelfth stone, cut flat the way a woodblock would cut it, over the mesa.' },
+      { id: 'contour', name: 'Contour · Serviceberry', image: '/images/shop/tshirts/clouds/contour.webp', description: 'The same cloud as line only, a shade darker than the shirt.' },
+      { id: 'scroll', name: 'Scroll · Salt', image: '/images/shop/tshirts/clouds/scroll.webp', description: 'Persimmon ink, the stone\'s three scrolls and the mesa under it.' },
+      { id: 'lime-line', name: 'Lime line · Pinyon', image: '/images/shop/tshirts/clouds/lime-line.webp', description: 'One thin lime line on the dark body. The loudest quiet shirt here.' },
+      { id: 'topo', name: 'Topo · Sage', image: '/images/shop/tshirts/clouds/topo.webp', description: 'The cloud filled with its own contours, a map of weather.' },
+      { id: 'mist', name: 'Mist · Milk', image: '/images/shop/tshirts/clouds/mist.webp', description: 'Three bands of low cloud, the way a woodblock draws a morning.' },
+      { id: 'drift', name: 'Drift · Persimmon', image: '/images/shop/tshirts/clouds/drift.webp', description: 'Three clouds going somewhere, a shade darker than the shirt.' },
+    ],
+  },
+
   caps: {
     ...TEE,
     id: 'caps',

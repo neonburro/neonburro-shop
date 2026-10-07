@@ -1,5 +1,5 @@
 // src/pages/Home/components/BlindLeadHero.jsx
-// SENTINEL: NB_SHOP_HERO_V3
+// SENTINEL: NB_SHOP_HERO_V4
 //
 // The shop leads with the hunt, not the merchandise. That is still the whole
 // decision. What changed in V3 is that the hunt is now something you can see.
@@ -37,6 +37,7 @@ import { HUNT } from '../../../data/blindLead';
 import { CLUE_FLOATS } from '../../../data/products-digital';
 import { colors } from '../../../theme/colors';
 import { RAIL, SHEET, EASE } from '../../../theme/layout';
+import { CLOUD, MIST } from '../../../data/scenes';
 
 const MotionBox = motion(Box);
 const LIME = colors.accent.signal;
@@ -105,11 +106,28 @@ const BlindLeadHero = ({ onScrollToProducts }) => {
       pt={{ base: 28, md: 24 }} pb={{ base: 14, md: 12 }}
       sx={{ background: `linear-gradient(118deg, ${colors.dark.void} 0%, ${LIME}0C 44%, ${colors.dark.black} 100%)` }}>
 
-      <Box position="absolute" aria-hidden="true" top={{ base: '-8%', md: '2%' }}
-        right={{ base: '-24%', md: '4%' }} w={{ base: '380px', md: '760px' }}
-        h={{ base: '380px', md: '760px' }}
-        sx={{ background: `radial-gradient(circle, ${LIME}1C 0%, ${LIME}07 46%, transparent 72%)`,
-              filter: 'blur(18px)' }} />
+      {/* THE SKY, 2026-10-07. The soft lime glow that sat here is a woodblock
+          night now: the carved cloud from the clouds. tees drawn large and
+          faint behind the envelopes, low mist along the bottom and the one
+          lime signal above the cloud, desktop only, because on a phone it lands
+          beside the bag and reads as a notification. Flat, no blur, nothing moves. The
+          outlines are data/scenes.js. docs/SHOP-DIRECTION.md asks for weather
+          behind the goods and this is the hero's share of it. */}
+      <Box position="absolute" aria-hidden="true" pointerEvents="none"
+        top={{ base: '2%', md: '12%' }} right={{ base: '-30%', md: '-9%' }}
+        w={{ base: '520px', md: '900px' }} opacity={{ base: 0.5, md: 1 }}
+        sx={{ '& circle': { display: { base: 'none', md: 'inline' } } }}>
+        <Box as="svg" viewBox="0 0 2080 1520" w="100%" h="auto" display="block">
+          <path transform={CLOUD.transform} d={CLOUD.d} fill={LIME} fillOpacity="0.13" />
+          <circle cx="1560" cy="150" r="22" fill={LIME} />
+        </Box>
+      </Box>
+      <Box position="absolute" aria-hidden="true" pointerEvents="none"
+        bottom={{ base: '-4%', md: '-7%' }} left={{ base: '-20%', md: '-6%' }} w={{ base: '420px', md: '640px' }}>
+        <Box as="svg" viewBox="0 0 2200 1280" w="100%" h="auto" display="block">
+          <path transform={MIST.transform} d={MIST.d} fill={LIME} fillOpacity="0.07" />
+        </Box>
+      </Box>
 
       <Box px={RAIL} maxW={SHEET} w="100%" position="relative" zIndex={1}>
         <Grid templateColumns={{ base: '1fr', md: '1.05fr 0.95fr' }} gap={{ base: 12, md: 10, lg: 16 }} alignItems="center">

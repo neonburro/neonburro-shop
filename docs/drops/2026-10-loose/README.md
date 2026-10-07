@@ -6,12 +6,12 @@ Aster, 2026-10-07, on Tyler's ask the same morning: "Let Aster make some better
 shirts based on Neonburro main graphics and stuff, and just get creative.
 They're all Japanese, kind of loose-fit shirts."
 
-**State: concepts.** Nothing here is in `src/data/`, has a Stripe price or has
-been printed. The mockups are the shop's own blank photographs from
+**State: listed, not printed.** All thirteen are in the shop as of 2026-10-07,
+below. None has a Stripe price object or a printed sample yet. The mockups are the shop's own blank photographs from
 `public/images/shop/tshirts/blanks/` with each print laid on and shaded by the
-fabric's own folds, so they read as printed shirts and not as stickers. They
-are for choosing, not for the storefront. A shirt goes into the shop only after
-Tyler picks it and a real sample comes back from the printer.
+fabric's own folds, so they read as printed shirts and not as stickers. Tyler
+chose to list them before any sample exists. Each mockup is replaced by a
+real photograph when its first sample comes back.
 
 `sheet.jpg` has all seven side by side.
 
@@ -41,6 +41,33 @@ Tyler picks it and a real sample comes back from the printer.
 | 6 | `know the number.` | pinyon | left chest, pocket size | nixie's three tubes, the middle one lit. The payments app, worn small. |
 | 7 | `peek.` | pinyon | rising out of the hem | He has been there the whole time. |
 
+## the thin clouds, added the same day
+
+Tyler, after the first seven: "I'd love to do some different cloud ones, but
+it needs to be kind of like a faded cloud because cloud shirt ink is really
+thick as a base color ... maybe don't use white ... one color, but thinner."
+
+A white cloud needs a thick underbase. So these six are line work in one ink,
+laid once, so they sink into the cotton and fade with it. Each is cut from the
+carved cloud's own silhouette, eroded by a distance transform so the contours
+follow the outer edge, with holes filled so no stray ring appears, and traced
+to vector. The mockups add a soft water based look so the fabric shows
+through. `sheet-clouds.jpg` has all six, masters are `masters/clouds-*.svg`.
+
+| name | shirt | ink |
+|---|---|---|
+| contour | serviceberry | a shade darker than the shirt |
+| scroll | salt | persimmon, with the stone's three scrolls and the mesa |
+| lime line | pinyon | lime, the shop's licence |
+| topo | sage | a shade darker, the cloud filled with its own contours |
+| mist | milk | serviceberry, three bands of low cloud |
+| drift | persimmon | a shade darker, three clouds at three sizes |
+
+**In the shop as of 2026-10-07,** on Tyler's word: "Let's add those shirts to
+the shop, please." Two lines in `src/data/products-wearable.js`, `loose.` with
+six of the first seven and `clouds.` with the carved cloud and these six.
+Listed, not buyable: nothing can be bought until an inventory row says so.
+
 ## where each one comes from
 
 - `glasses.` and `peek.` are the burro from `neonburro/public/logo-main.png`,
@@ -65,15 +92,16 @@ Tyler picks it and a real sample comes back from the printer.
   Lyra is working on nixie's icon in that repo now, so this one follows
   whatever she and Tyler settle.
 
-## before any of these is printed
+## before any of these can be bought
 
-1. Tyler picks.
+1. Tyler picks which to print first.
 2. The two masters in Geist (`embrace.html`, `know-the-number.html`) get
    their type converted to outlines. They load the font from the studio's
    node_modules on this Mac and will not render anywhere else.
 3. One sample per pick on the real body, photographed, and the photograph
-   replaces the mockup. The shop never shows a shirt it has not seen.
-4. Only then a product entry in `src/data/products-wearable.js`, a Stripe
-   price and a clue, because every piece carries one.
+   replaces the mockup in `public/images/shop/tshirts/loose/` or `clouds/`.
+4. An inventory row, which is what makes a shirt buyable, and its clue,
+   because every piece carries one. A Stripe price object is optional, the
+   checkout prices by amount.
 
 No oxford commas, no em dashes.

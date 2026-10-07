@@ -79,7 +79,14 @@ const ProductHero = ({ product, onAddToCart, onBuyNow }) => {
 
   const [selectedSize, setSelectedSize] = useState(product.sizes ? product.sizes[0] : '');
   const [selectedTier, setSelectedTier] = useState(hasTiers ? (product.priceOptions.find((t) => t.featured) || product.priceOptions[0]) : null);
-  const [selectedDesign, setSelectedDesign] = useState(hasDesigns ? product.designs[0] : null);
+  // ?design=<id> opens on that design. The new drop band on the home page
+  // links each shirt this way, so a tap on the scroll cloud lands on the scroll
+  // cloud and not on whichever design happens to be first. 2026-10-07.
+  const [selectedDesign, setSelectedDesign] = useState(() => {
+    if (!hasDesigns) return null;
+    const want = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('design') : null;
+    return product.designs.find((d) => d.id === want) || product.designs[0];
+  });
   const [quantity, setQuantity] = useState(1);
   const [isAdding, setIsAdding] = useState(false);
   const [mode, setMode] = useState('new');

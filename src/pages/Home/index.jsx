@@ -1,5 +1,5 @@
 // src/pages/Home/index.jsx
-// SENTINEL: NB_SHOP_HOME_V3
+// SENTINEL: NB_SHOP_HOME_V4
 //
 // The shop, reframed. Hunt first, goods second, and a quiet band between them
 // that explains what float is so nobody arrives at a ninety nine dollar pair of
@@ -19,6 +19,12 @@
 // grid is still a screen down. It has not lost its job. It has stopped being
 // the argument.
 //
+// ── V4, the new drop under the hero ────────────────────────────────────────
+// 2026-10-07. The loose. and clouds. shirts arrived as thirteen designs in two
+// lines, and the grid shows a line by one cover, so NewDrop puts all thirteen
+// in one strip right under the hero. The hunt still leads. The band is a
+// screen tall at most and the float explainer follows it unchanged.
+//
 // No oxford commas, no em dashes.
 
 import { Box, Text, Heading, HStack, VStack, SimpleGrid } from '@chakra-ui/react';
@@ -27,6 +33,7 @@ import { useRef } from 'react';
 import { FiArrowRight } from 'react-icons/fi';
 import BlindLeadHero from './components/BlindLeadHero';
 import ProductGrid from './components/ProductGrid';
+import NewDrop from './components/NewDrop';
 import { HOW_IT_WORKS, HUNT } from '../../data/blindLead';
 import { colors } from '../../theme/colors';
 import { RAIL, SHEET } from '../../theme/layout';
@@ -58,6 +65,8 @@ const Home = () => {
   return (
     <Box bg={colors.dark.black} minH="100vh">
       <BlindLeadHero onScrollToProducts={scrollToProducts} />
+
+      <NewDrop />
 
       {/* ── what float is, before anybody sees a price ──────────────── */}
       <Box as="section" px={RAIL} py={{ base: 12, md: 20 }} maxW={SHEET}

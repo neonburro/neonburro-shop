@@ -27,6 +27,13 @@
 // hairline card returns at md where there is room for chrome. This is the
 // same rule the content sections follow, no boxes on a phone.
 //
+// ── the scene behind the cutout ─────────────────────────────────────────────
+// 2026-10-07. The image well used to be a soft radial glow in the product's
+// tint. It is a SceneGround now, a flat woodblock sky with a cloud, low mist or
+// the ridge, so the grid reads as a set of scenes and not a row of boxes. The
+// tint still comes from product.color, and the cutout sits above it. See
+// SceneGround.jsx for the why.
+//
 // No oxford commas, no em dashes.
 
 import { Box, Heading, Text, VStack, HStack } from '@chakra-ui/react';
@@ -34,6 +41,7 @@ import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { colors } from '../../theme/colors';
 import { EASE } from '../../theme/layout';
+import SceneGround from './SceneGround';
 
 const MotionBox = motion(Box);
 const LIME = colors.accent.signal;
@@ -76,8 +84,10 @@ const ProductCard = ({ product, index = 0, animate = true }) => {
         alignItems="center"
         justifyContent="center"
         borderRadius={{ base: 'xl', md: 'none' }}
-        background={{ base: `radial-gradient(circle at 50% 46%, ${tint}14 0%, ${colors.dark.gray} 72%)`, md: `radial-gradient(circle at 50% 45%, ${tint}10 0%, transparent 68%)` }}
+        overflow="hidden"
+        bg={colors.dark.gray}
       >
+        <SceneGround id={product.id} tint={tint} />
         {product.featuredImage ? (
           <Box
             as="img"
@@ -88,6 +98,8 @@ const ProductCard = ({ product, index = 0, animate = true }) => {
             maxH="84%"
             objectFit="contain"
             draggable={false}
+            position="relative"
+            zIndex={1}
             sx={{ transition: `transform 0.6s ${EASE}` }}
             _groupHover={{ transform: 'scale(1.03)' }}
           />
