@@ -65,7 +65,11 @@ const LIME = colors.accent.signal;
 
 const money = (n) => `$${Number(n || 0).toLocaleString('en-US')}`;
 
-// The fields a cart line needs. Nothing else from the record travels.
+// The fields a cart line needs. Nothing else from the record travels. The
+// price on the line is for display only. priceOrder in
+// netlify/functions/_shop-catalog.js reprices every line from the record and
+// reads size, design, tier and reload code the way this file does, with the
+// same quantity ceiling of 10 as the stepper below. Change one, change both.
 const LINE_FIELDS = ['id', 'name', 'subtitle', 'category', 'room', 'delivery', 'color', 'featuredImage', 'stripePriceId', 'floatWeight'];
 
 const ProductHero = ({ product, onAddToCart, onBuyNow }) => {

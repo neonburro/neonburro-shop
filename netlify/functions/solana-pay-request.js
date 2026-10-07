@@ -1,5 +1,5 @@
 // netlify/functions/solana-pay-request.js
-// SENTINEL: NB_SHOP_SOLANA_REQUEST_V1
+// SENTINEL: NB_SHOP_SOLANA_REQUEST_V1_PRICED
 //
 // Opens a direct Solana payment. The browser posts the saddlebag and whatever
 // the customer chose to tell us (all optional on this rail), we mint a
@@ -7,9 +7,19 @@
 // browser draws that as a QR and a tap to open link, then polls
 // solana-pay-status until it lands. See _solana.js for the whole rail.
 //
-// The amount is priced HERE and locked in the row. The browser never sends a
-// token amount, only the dollar total, and the dollar total is recomputed from
-// the items so a tampered client cannot pay two cents for a hoodie.
+// The amount is priced HERE and locked in the row. Until 2026-10-07 this file
+// said the same and was wrong: it summed price times quantity from the
+// browser's own lines, so a crafted request could ask two cents for a hoodie
+// and the chain would faithfully verify the two cents. It also never checked
+// stock, so a shirt the page shows as out could be requested here. Now the
+// lines go through priceOrder and assertFreshInventory in _shop-catalog.js,
+// the same two gates the Stripe rail uses, and the row stores the server's
+// lines, never the browser's. solana-pay-status and solana-pay-sweep verify
+// against amount_token in that row, so they inherit the fix with no change.
+//
+// This is the smallest change that closes it. The uncommitted September
+// rewrite of this file (idempotent checkout keys, a cross checked SOL quote,
+// a shop_orders receipt) is a larger design and is not part of this.
 //
 // No oxford commas, no em dashes.
 
@@ -17,6 +27,7 @@ import {
   RECIPIENT, REQUEST_TTL_MIN, newReference, payUrl, solPriceUsd, tokenAmountFor,
   formatAmount, db, json,
 } from './_solana.js';
+import { assertFreshInventory, priceOrder, ShopCatalogError } from './_shop-catalog.js';
 
 const clip = (v, n) => String(v ?? '').slice(0, n);
 
@@ -27,11 +38,10 @@ export const handler = async (event) => {
   try {
     const body = JSON.parse(event.body || '{}');
     const currency = body.currency === 'SOL' ? 'SOL' : 'USDC';
-    const items = Array.isArray(body.items) ? body.items : [];
-    if (items.length === 0) return json(400, { error: 'Nothing in the saddlebag' });
 
-    const amountUsd = Math.round(items.reduce((n, i) => n + Number(i.price || 0) * Number(i.quantity || 0), 0) * 100) / 100;
-    if (!Number.isFinite(amountUsd) || amountUsd < 0.5) return json(400, { error: 'Invalid amount' });
+    const priced = priceOrder(body.items);
+    await assertFreshInventory(priced.items);
+    const { items, amountUsd } = priced;
 
     let priceUsd = 1;
     if (currency === 'SOL') {
@@ -63,10 +73,10 @@ export const handler = async (event) => {
         price_usd: priceUsd,
         status: 'pending',
         customer,
-        items: items.slice(0, 40).map((i) => ({
-          id: clip(i.id, 80), name: clip(i.name, 120), price: Number(i.price || 0), quantity: Number(i.quantity || 0),
-          size: i.selectedSize || null, design: i.selectedDesign || null, tier: i.selectedTier || null,
-          reloadCode: i.reloadCode || null, delivery: i.delivery === 'digital' ? 'digital' : 'ship',
+        items: items.map((i) => ({
+          id: i.id, name: i.name, price: i.price, quantity: i.quantity,
+          size: i.selectedSize, design: i.selectedDesign, tier: i.selectedTier,
+          reloadCode: i.reloadCode, delivery: i.delivery,
         })),
         memo,
         expires_at: expiresAt,
@@ -84,6 +94,9 @@ export const handler = async (event) => {
       expiresAt,
     });
   } catch (err) {
+    if (err instanceof ShopCatalogError) {
+      return json(err.statusCode, { error: err.message, code: err.code });
+    }
     console.error('solana-pay-request failed', err);
     return json(500, { error: 'Could not open the direct payment', details: err.message });
   }

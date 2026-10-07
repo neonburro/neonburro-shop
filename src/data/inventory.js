@@ -86,7 +86,10 @@ export const stockFor = (productId, variantId = null) => {
   return rows.reduce((n, [, v]) => n + Number(v || 0), 0);
 };
 
-// The only question a component should ask.
+// The only question a component should ask. checkInventoryRows in
+// netlify/functions/_shop-catalog.js asks it again at payment, stricter: a
+// piece that ships needs a fresh positive row there, a digital piece gets this
+// same answer. Change one, change both.
 export const isBuyable = (product, variantId = null) => {
   if (!product) return false;
   const live = stockFor(product.id, variantId);
