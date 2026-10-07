@@ -1,5 +1,5 @@
 // netlify/functions/create-payment-intent.js
-// SENTINEL: NB_SHOP_PAYMENT_INTENT_V5
+// SENTINEL: NB_SHOP_PAYMENT_INTENT_V6
 //
 // Stripe prices never come from the browser. A shop request is rebuilt by
 // priceOrder in _shop-catalog.js from the shop's own product records, checked
@@ -31,9 +31,21 @@
 // Stripe metadata is 50 keys and 500 characters a value. items_json is clipped,
 // the per item keys cover the first five lines and the receipt holds the rest.
 //
-// The older service invoice path is at the bottom. It still takes its amount
-// from the request because there is no invoice record to price it from. Nothing
-// in the shop calls it.
+// ── the shop is the only door (V6, 2026-10-07) ──────────────────────────────
+// Until V6 a request without type 'shop' fell through to an older service
+// invoice path. It took amount, firstName, projectName and hours from the body
+// and made a live PaymentIntent for whatever amount it was handed, fifty cents
+// and up. It bought nothing, no order and no product stood behind it, but it
+// was a card testing door. Anybody holding a stolen card could mint intents at
+// any price on the live key and try them, and the studio carries the disputes
+// and the fees. Nothing called it: CheckoutForm.jsx and ExpressCheckout.jsx
+// both send type 'shop', committed and uncommitted, and no other repo posts to
+// this function. Warbleur agreed it goes rather than gets gated.
+//
+// So anything that is not type 'shop' is now a 400 before Stripe is touched.
+// Studio invoices are paid through Pulse and the studio site, which price from
+// a stored invoice row. If a second kind of payment ever lands here it gets
+// its own priced path, never an amount from the body.
 //
 // No oxford commas, no em dashes.
 
@@ -202,29 +214,10 @@ export const handler = async (event) => {
 
   try {
     const body = JSON.parse(event.body || '{}');
-    if (body.type === 'shop') return await shopPayment(body);
-
-    const { amount, firstName, projectName, hours } = body;
-    if (!amount || !firstName || !projectName || !hours) {
-      return response(400, { error: 'Missing required fields' });
+    if (body.type !== 'shop') {
+      return response(400, { error: 'This door only takes shop orders.', code: 'not_a_shop_order' });
     }
-    const cents = Math.round(Number(amount) * 100);
-    if (!Number.isFinite(cents) || cents < 50) return response(400, { error: 'Invalid amount' });
-
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: cents,
-      currency: 'usd',
-      automatic_payment_methods: { enabled: true },
-      metadata: {
-        type: 'service_invoice',
-        firstName: clip(firstName, 100),
-        projectName: clip(projectName, 200),
-        hours: String(hours),
-      },
-      statement_descriptor_suffix: 'NEONBURRO',
-    });
-
-    return response(200, { clientSecret: paymentIntent.client_secret, id: paymentIntent.id });
+    return await shopPayment(body);
   } catch (error) {
     if (error instanceof ShopCatalogError) {
       return response(error.statusCode, { error: error.message, code: error.code });
